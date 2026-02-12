@@ -26,7 +26,37 @@ const char ACCESS_TOKEN[] = "YOUR_SMARTVITA_ACCESS_TOKEN";
 - `type`: `req` | `res`  
 - `id`: correlation id (one request ↔ one response)  
 - `from`: sender id (e.g., `web-...`, `esp-<mac>`)  
-- `http`: `method`, `url`, optional `headers`, optional `body_b64`  
+- `http`: `method`, `url`, optional `headers`, optional `body_b64` 
+```
+Request:
+{
+  "v": 1,
+  "type": "req",
+  "id": "toggle-002",
+  "from": "web-hivemq",
+  "to": "esp-3C:84:27:AA:BB:CC",
+  "http": {
+    "method": "GET",
+    "url": "http://192.168.0.124/relay/0?turn=toggle",
+    "headers": {
+      "Accept": "application/json"
+    },
+    "body_b64": ""
+  }
+}
+Response:
+{
+  "v": 1,
+  "type": "res",
+  "id": "toggle-002",
+  "from": "esp-3C:84:27:AA:BB:CC",
+  "ok": true,
+  "status": 200,
+  "body_b64": "eyJpc29uIjp0cnVlfQ==",
+  "error": null
+}
+
+``` 
 
 ## Body encoding
 - `body_b64`: Base64-encoded HTTP body (request/response)[2]
