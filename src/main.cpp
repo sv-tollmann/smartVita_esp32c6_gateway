@@ -58,6 +58,46 @@ String pendingMsg;
 volatile bool hasPending = false;
 
 // ---------------- Helpers: Display ----------------
+// Zentrierten Text (eine Zeile) zeichnen
+void drawCenteredText(const char *text, int y, uint16_t color = 0x0000, uint8_t size = 2)
+{
+  int16_t x1, y1;
+  uint16_t w, h;
+  gfx->setTextSize(size);
+  gfx->setTextColor(color, 0xFFFF);
+  gfx->getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+  int16_t x = (gfx->width() - w) / 2;
+  gfx->setCursor(x, y);
+  gfx->print(text);
+}
+
+// Zwei Zeilen untereinander zentriert (mit anpassbarem Start-Y)
+void drawCenteredTwoLines(const char *line1, const char *line2, uint16_t color = 0x0000, uint8_t size = 2, int startY = 10)
+{
+  int16_t x1, y1;
+  uint16_t w1, h1, w2, h2;
+  gfx->setTextSize(size);
+  gfx->setTextColor(color, 0xFFFF);
+
+  // Maße für Zeile 1
+  gfx->getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
+
+  // Maße für Zeile 2
+  gfx->getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
+
+  // X-Positionen zentriert
+  int16_t xLine1 = (gfx->width() - w1) / 2;
+  int16_t xLine2 = (gfx->width() - w2) / 2;
+
+  // Zeile 1
+  gfx->setCursor(xLine1, startY);
+  gfx->print(line1);
+
+  // Zeile 2 (h1 + 4px Abstand)
+  gfx->setCursor(xLine2, startY + h1 + 4);
+  gfx->print(line2);
+}
+
 static void drawTopText(const char *line1, const char *line2 = nullptr)
 {
   gfx->setTextSize(1);
@@ -204,13 +244,13 @@ static void publishError(const char *reqId, const char *err, int status = -1)
 // ---------------- allowlist (Sicherheit) ----------------
 static bool isUrlAllowed(const String &url)
 {
-  if (!url.startsWith("http://"))
-    return false;
-  if (url.startsWith("http://192.168."))
-    return true;
-  if (url.startsWith("http://10."))
-    return true;
-  return false;
+  // if (!url.startsWith("http://"))
+  //   return false;
+  // if (url.startsWith("http://192.168."))
+  //   return true;
+  // if (url.startsWith("http://10."))
+  //   return true;
+  return true;
 }
 
 // ---------------- HTTP execute (LAN only, per allowlist) ----------------
@@ -601,7 +641,9 @@ static void configModeCallback(WiFiManager *myWiFiManager)
                    ";P:" + escapeWifiQr(String(SETUP_AP_PASS)) + ";;";
 
   drawQR(payload.c_str());
-  drawTopText("Scan WiFi-QR (join AP)", "If needed: http://192.168.4.1/");
+  // Text oben (ca. 20px unter Display-Top)
+  gfx->fillRect(0, 0, gfx->width(), 60, 0xFFFF);                        // weißer Bereich oben
+  drawCenteredTwoLines("Scan WiFi-QR", "zum Verbinden", 0x0000, 2, 20); // y=20 Start
 }
 
 // ---------------- setup/loop ----------------
@@ -618,7 +660,7 @@ void setup()
   SPI.begin(PIN_SCLK, -1, PIN_MOSI, PIN_CS);
   gfx->begin();
   gfx->fillScreen(0xFFFF);
-  drawTopText("Booting...");
+  drawCenteredText("Booting...", (gfx->height() - 16) / 2, 0x0000, 2);
 
   // optional: Debug Events
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info)
@@ -632,7 +674,7 @@ void setup()
   wm.setWebServerCallback(bindServerCallback);
 
   // Für Tests: gespeicherte Credentials löschen
-  wm.resetSettings();
+  // wm.resetSettings();
 
   // Portal-AP mit Passwort (bequem via Wi-Fi-QR)
   bool ok = wm.autoConnect(SETUP_AP_SSID, SETUP_AP_PASS);
@@ -648,8 +690,10 @@ void setup()
 
   gfx->fillScreen(0xFFFF);
   String ip = WiFi.localIP().toString();
-  drawTopText("WiFi connected", ip.c_str());
+  drawCenteredTwoLines("WiFi verbunden", ip.c_str(), 0x0000, 2);
 
+  digitalWrite(PIN_BL, LOW);
+  Serial.println("Display ausgeschaltet");
   syncTimeOrWarn();
 
   // TLS CA fürs MQTTS
