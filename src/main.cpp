@@ -21,7 +21,6 @@
 
 #include "secrets.h" // muss definieren: MQTT_USER, MQTT_PASSWORD
 #include "cert.h"    // muss definieren: ROOT_CERT_HIVEMQ (PEM-Root-CA)
-
 // ---------------- MQTT config ----------------
 static const char *MQTT_SERVER = "a5247c1ae5634398b09808b959fd47e9.s1.eu.hivemq.cloud";
 static const uint16_t MQTT_PORT = 8883;
@@ -618,14 +617,42 @@ static void handleProvision()
   }
 }
 
+static String portalUrl()
+{
+  // SoftAP-IP ist die richtige Portal-IP im Config-Mode
+  return String("http://") + WiFi.softAPIP().toString() + "/";
+}
+
 static void bindServerCallback()
 {
-  // Captive portals landen oft auf "/" -> hier dein UI
   wm.server->on("/", HTTP_GET, handleOnboardingPage);
   wm.server->on("/espOnboarding", HTTP_GET, handleOnboardingPage);
 
   wm.server->on("/api/scan", HTTP_GET, handleScan);
   wm.server->on("/api/provision", HTTP_POST, handleProvision);
+
+  // ANDROID captive portal checks
+  wm.server->on("/generate_204", HTTP_GET, []()
+                {
+    wm.server->sendHeader("Location", portalUrl(), true);
+    wm.server->send(302, "text/plain", ""); });
+  // manche Geräte rufen auch diese Variante auf
+  wm.server->on("/generate204", HTTP_GET, []()
+                {
+    wm.server->sendHeader("Location", portalUrl(), true);
+    wm.server->send(302, "text/plain", ""); });
+
+  // WINDOWS captive portal check
+  wm.server->on("/fwlink", HTTP_GET, []()
+                {
+    wm.server->sendHeader("Location", portalUrl(), true);
+    wm.server->send(302, "text/plain", ""); });
+
+  wm.server->on("/hotspot-detect.html", HTTP_GET, handleOnboardingPage);
+  wm.server->on("/ncsi.txt", HTTP_GET, []()
+                { wm.server->send(204, "text/plain", ""); });
+
+  wm.server->onNotFound(handleOnboardingPage);
 }
 
 static void configModeCallback(WiFiManager *myWiFiManager)
@@ -651,12 +678,18 @@ void setup()
 {
   Serial.begin(115200);
 
+  // ---------------- Backlight: dauerhaft dimmen ----------------
+  // WICHTIG: Danach PIN_BL nie wieder mit pinMode()/digitalWrite() anfassen!
+  static const uint8_t BL = 35; // 0..255 (kleiner = dunkler) -> z.B. 20..80 testen
+  bool blOk1 = ledcAttach(PIN_BL, 5000, 8);
+  bool blOk2 = ledcWrite(PIN_BL, BL);
+  Serial.printf("Backlight PWM attach=%d write=%d duty=%u\n", blOk1, blOk2, BL);
+
+  // ---------------- ID ----------------
   espId = "esp-";
   espId += WiFi.macAddress();
 
-  pinMode(PIN_BL, OUTPUT);
-  digitalWrite(PIN_BL, HIGH);
-
+  // ---------------- Display init ----------------
   SPI.begin(PIN_SCLK, -1, PIN_MOSI, PIN_CS);
   gfx->begin();
   gfx->fillScreen(0xFFFF);
@@ -665,18 +698,18 @@ void setup()
   // optional: Debug Events
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info)
                {
-    (void)info;
-    Serial.printf("WiFi event: %d\n", event); });
+                 (void)info;
+                 Serial.printf("WiFi event: %d\n", event); });
 
   WiFi.mode(WIFI_STA);
 
-  wm.setAPCallback(configModeCallback); // Config-Mode Callback [web:58]
+  // ---------------- WiFiManager ----------------
+  wm.setAPCallback(configModeCallback);
   wm.setWebServerCallback(bindServerCallback);
 
   // Für Tests: gespeicherte Credentials löschen
-  // wm.resetSettings();
+  //wm.resetSettings();
 
-  // Portal-AP mit Passwort (bequem via Wi-Fi-QR)
   bool ok = wm.autoConnect(SETUP_AP_SSID, SETUP_AP_PASS);
   if (!ok)
   {
@@ -688,12 +721,28 @@ void setup()
   Serial.println("WLAN verbunden!");
   Serial.println(WiFi.localIP());
 
+  // ---------------- Erfolgsscreen ----------------
   gfx->fillScreen(0xFFFF);
-  String ip = WiFi.localIP().toString();
-  drawCenteredTwoLines("WiFi verbunden", ip.c_str(), 0x0000, 2);
 
-  digitalWrite(PIN_BL, LOW);
-  Serial.println("Display ausgeschaltet");
+  int centerX = gfx->width() / 2;
+  int centerY = 80;
+  int checkSize = 40;
+
+  gfx->fillCircle(centerX, centerY, checkSize / 2 + 2, 0x07E0);
+  gfx->drawCircle(centerX, centerY, checkSize / 2 + 2, 0x06E0);
+  gfx->fillCircle(centerX, centerY, checkSize / 2 - 8, 0xFFFF);
+
+  gfx->drawLine(centerX - 12, centerY - 2, centerX - 6, centerY + 6, 0x05E0);
+  gfx->drawLine(centerX - 6, centerY + 6, centerX + 10, centerY - 8, 0x05E0);
+
+  drawCenteredTwoLines("WiFi verbunden",
+                       WiFi.localIP().toString().c_str(),
+                       0x0000, 2, 140);
+
+  // Wenn du willst, kannst du hier später dimmen/ausmachen:
+  // ledcWrite(PIN_BL, 0);   // aus
+  // ledcWrite(PIN_BL, 35);  // wieder an (dim)
+
   syncTimeOrWarn();
 
   // TLS CA fürs MQTTS
