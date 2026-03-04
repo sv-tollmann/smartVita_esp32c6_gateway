@@ -34,6 +34,46 @@ static const uint32_t HTTP_TIMEOUT_MS = 15000;
 static const size_t JSON_DOC_SIZE = 4096;
 static const size_t MAX_BODY_DECODED = 2048;
 
+// ---------------- Local HTTP ingest (/meter) ----------------
+static WebServer meterServer(8080); // eigener Port, kollidiert nicht mit WiFiManager-Portal
+static const size_t METER_MAX_BODY = 512;
+
+static void handleMeterPost()
+{
+  String body = meterServer.arg("plain"); // Body bei application/json
+  IPAddress rip = meterServer.client().remoteIP();
+
+  Serial.printf("[/meter] from=%s len=%u\n", rip.toString().c_str(), (unsigned)body.length());
+  Serial.println(body);
+
+  if (body.length() == 0 || body.length() > METER_MAX_BODY)
+  {
+    meterServer.send(413, "text/plain", "body too large");
+    return;
+  }
+
+  // JSON nur validieren (optional, aber hilfreich)
+  StaticJsonDocument<256> tmp;
+  DeserializationError err = deserializeJson(tmp, body);
+  if (err)
+  {
+    Serial.printf("[/meter] JSON error: %s\n", err.c_str());
+    meterServer.send(400, "text/plain", "bad json");
+    return;
+  }
+
+  meterServer.send(204, "text/plain", "");
+}
+
+static void setupMeterServer()
+{
+  meterServer.on("/meter", HTTP_POST, handleMeterPost);
+  meterServer.on("/meter", HTTP_GET, []()
+                 { meterServer.send(200, "text/plain", "ok"); }); // optional health-check
+  meterServer.begin();
+  Serial.println("Meter HTTP server started on :8080 (POST /meter)");
+}
+
 // ---------------- Display (Waveshare ESP32-C6-LCD-1.47) ----------------
 static constexpr int PIN_MOSI = 6;
 static constexpr int PIN_SCLK = 7;
@@ -708,7 +748,7 @@ void setup()
   wm.setWebServerCallback(bindServerCallback);
 
   // Für Tests: gespeicherte Credentials löschen
-  //wm.resetSettings();
+  // wm.resetSettings();
 
   bool ok = wm.autoConnect(SETUP_AP_SSID, SETUP_AP_PASS);
   if (!ok)
@@ -720,6 +760,7 @@ void setup()
 
   Serial.println("WLAN verbunden!");
   Serial.println(WiFi.localIP());
+  setupMeterServer();
 
   // ---------------- Erfolgsscreen ----------------
   gfx->fillScreen(0xFFFF);
@@ -754,6 +795,7 @@ void setup()
 void loop()
 {
   handleMqtt();
+  meterServer.handleClient();
 
   if (hasPending)
   {
